@@ -3,7 +3,20 @@ __pycache__/
 *.py[codz]
 *$py.class
 .DS_Store
-venv/ 
+venv/
+
+# Upstream reference repos
+_baselines_upstream/
+_idaac_upstream/
+_plr_upstream/
+
+# Local artifacts
+local_logs*
+local_models/
+*.png
+wandb/
+DEVELOPMENT_SUMMARY.md
+Deep RL Project Ideas.md
 # C extensions
 *.so
 

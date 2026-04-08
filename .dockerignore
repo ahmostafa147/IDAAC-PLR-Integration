@@ -1,0 +1,9 @@
+.git
+_idaac_upstream
+_plr_upstream
+_baselines_upstream
+venv
+__pycache__
+*.pyc
+.DS_Store
+Deep RL Project Ideas.md
