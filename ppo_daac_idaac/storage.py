@@ -22,7 +22,12 @@ class RolloutStorage(object):
         self.masks = torch.ones(num_steps + 1, num_processes, 1)
         self.num_steps = num_steps
         self.step = 0
-        
+
+        # PLR compatibility
+        num_actions = action_space.n if action_space.__class__.__name__ == 'Discrete' else action_space.shape[0]
+        self.level_seeds = torch.zeros(num_steps, num_processes, 1, dtype=torch.int)
+        self.action_log_dist = torch.zeros(num_steps, num_processes, num_actions)
+
     def to(self, device):
         self.obs = self.obs.to(device)
         self.rewards = self.rewards.to(device)
@@ -31,6 +36,8 @@ class RolloutStorage(object):
         self.action_log_probs = self.action_log_probs.to(device)
         self.actions = self.actions.to(device)
         self.masks = self.masks.to(device)
+        self.level_seeds = self.level_seeds.to(device)
+        self.action_log_dist = self.action_log_dist.to(device)
 
     def insert(self, obs, actions, action_log_probs, 
                value_preds, rewards, masks):
