@@ -30,7 +30,7 @@ def evaluate(args, actor_critic, device):
     while len(eval_episode_rewards) < 10:
         with torch.no_grad():
             if args.algo == 'ppo':
-                value, action, _ = actor_critic.act(obs)
+                value, action, _, _ = actor_critic.act(obs)
                 all_values.append(value.item())
             else:
                 adv, value, action, _, _ = actor_critic.act(obs)

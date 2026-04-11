@@ -158,7 +158,7 @@ def train(args):
         for step in range(args.num_steps):
             with torch.no_grad():
                 if args.algo == 'ppo':
-                    value, action, action_log_prob = actor_critic.act(rollouts.obs[step])
+                    value, action, action_log_prob, action_log_dist_t = actor_critic.act(rollouts.obs[step])
                 else:
                     adv, value, action, action_log_prob, action_log_dist_t = \
                         actor_critic.act(rollouts.obs[step])
@@ -193,6 +193,11 @@ def train(args):
             else:
                 rollouts.insert(obs, action, action_log_prob, value,
                                 reward, masks)
+                if args.use_plr:
+                    levels = torch.LongTensor([info['level_seed'] for info in infos])
+                    idx = (rollouts.step - 1) % args.num_steps
+                    rollouts.level_seeds[idx].copy_(levels.unsqueeze(-1))
+                    rollouts.action_log_dist[idx].copy_(action_log_dist_t)
 
         with torch.no_grad():
             next_value = actor_critic.get_value(rollouts.obs[-1]).detach()
@@ -266,8 +271,8 @@ def train(args):
                 logger.logkv("test/adv_pred_mean", eval_stats['eval_adv_pred_mean'])
                 logger.logkv("test/adv_pred_std", eval_stats['eval_adv_pred_std'])
             if level_sampler is not None:
-                for k, v in level_sampler.get_stats().items():
-                    logger.logkv(k, v)
+                for k, stat_v in level_sampler.get_stats().items():
+                    logger.logkv(k, stat_v)
             logger.dumpkvs()
 
             # Wandb logging
