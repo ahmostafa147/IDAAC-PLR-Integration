@@ -14,8 +14,11 @@ from ppo_daac_idaac.envs import VecPyTorchProcgen
 def evaluate(args, actor_critic, device):
     actor_critic.eval()
 
-    # Sample Levels From the Full Distribution 
-    venv = ProcgenEnv(num_envs=1, env_name=args.env_name, \
+    num_eval_envs = getattr(args, 'num_eval_envs', 16)
+    num_eval_episodes = getattr(args, 'num_eval_episodes', 10)
+
+    # Sample Levels From the Full Distribution
+    venv = ProcgenEnv(num_envs=num_eval_envs, env_name=args.env_name, \
         num_levels=0, start_level=0, distribution_mode=args.distribution_mode)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
@@ -27,15 +30,15 @@ def evaluate(args, actor_critic, device):
     all_adv_preds = []
     obs = eval_envs.reset()
 
-    while len(eval_episode_rewards) < 10:
+    while len(eval_episode_rewards) < num_eval_episodes:
         with torch.no_grad():
             if args.algo == 'ppo':
-                value, action, _ = actor_critic.act(obs)
-                all_values.append(value.item())
+                value, action, _, _ = actor_critic.act(obs)
+                all_values.extend(value.squeeze(-1).tolist())
             else:
                 adv, value, action, _, _ = actor_critic.act(obs)
-                all_values.append(value.item())
-                all_adv_preds.append(adv.item())
+                all_values.extend(value.squeeze(-1).tolist())
+                all_adv_preds.extend(adv.squeeze(-1).tolist())
 
         obs, _, done, infos = eval_envs.step(action)
 

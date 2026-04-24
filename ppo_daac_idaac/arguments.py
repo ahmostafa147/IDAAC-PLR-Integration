@@ -181,7 +181,8 @@ parser.add_argument(
     type=str,
     default='value_l1',
     choices=['random', 'policy_entropy', 'least_confidence',
-             'min_margin', 'gae', 'value_l1', 'one_step_td_error'],
+             'min_margin', 'gae', 'value_l1', 'one_step_td_error',
+             'advantage_l1'],
     help='PLR scoring strategy')
 parser.add_argument(
     '--level_replay_score_transform',
@@ -228,6 +229,18 @@ parser.add_argument(
     type=float,
     default=1.0,
     help='PLR staleness temperature')
+
+# Evaluation arguments.
+parser.add_argument(
+    '--num_eval_envs',
+    type=int,
+    default=16,
+    help='number of parallel envs for evaluation')
+parser.add_argument(
+    '--num_eval_episodes',
+    type=int,
+    default=10,
+    help='number of eval episodes to collect')
 
 # Wandb arguments.
 parser.add_argument(

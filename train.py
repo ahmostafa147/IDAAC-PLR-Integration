@@ -79,6 +79,10 @@ def train(args):
     # --- PLR setup ---
     level_sampler = None
     if args.use_plr:
+        if args.level_replay_strategy == 'advantage_l1' and args.algo == 'ppo':
+            raise ValueError(
+                "--level_replay_strategy advantage_l1 requires an advantage head "
+                "(use --algo idaac or daac); PPO has no advantage prediction.")
         level_sampler = LevelSampler(
             seeds=list(range(args.num_levels)),
             obs_space=None, action_space=None,
@@ -158,16 +162,17 @@ def train(args):
         for step in range(args.num_steps):
             with torch.no_grad():
                 if args.algo == 'ppo':
-                    value, action, action_log_prob = actor_critic.act(rollouts.obs[step])
+                    value, action, action_log_prob, action_log_dist_t = \
+                        actor_critic.act(rollouts.obs[step])
                 else:
                     adv, value, action, action_log_prob, action_log_dist_t = \
                         actor_critic.act(rollouts.obs[step])
 
             obs, reward, done, infos = envs.step(action)
 
-            if args.algo == 'idaac':
+            if args.algo == 'idaac' or args.use_plr:
                 levels = torch.LongTensor([info['level_seed'] for info in infos])
-                if j == 0 and step == 0:
+                if args.algo == 'idaac' and j == 0 and step == 0:
                     rollouts.levels[0].copy_(levels)
 
             for info in infos:
@@ -182,17 +187,18 @@ def train(args):
             if args.algo == 'idaac':
                 rollouts.insert(obs, action, action_log_prob, value,
                                 reward, masks, adv, levels, nsteps)
-                # PLR needs level_seeds and action_log_dist in storage
-                if args.use_plr:
-                    idx = (rollouts.step - 1) % args.num_steps
-                    rollouts.level_seeds[idx].copy_(levels.unsqueeze(-1))
-                    rollouts.action_log_dist[idx].copy_(action_log_dist_t)
             elif args.algo == 'daac':
                 rollouts.insert(obs, action, action_log_prob, value,
                                 reward, masks, adv)
             else:
                 rollouts.insert(obs, action, action_log_prob, value,
                                 reward, masks)
+
+            # PLR needs level_seeds and action_log_dist in storage
+            if args.use_plr:
+                idx = (rollouts.step - 1) % args.num_steps
+                rollouts.level_seeds[idx].copy_(levels.unsqueeze(-1))
+                rollouts.action_log_dist[idx].copy_(action_log_dist_t)
 
         with torch.no_grad():
             next_value = actor_critic.get_value(rollouts.obs[-1]).detach()
@@ -266,8 +272,8 @@ def train(args):
                 logger.logkv("test/adv_pred_mean", eval_stats['eval_adv_pred_mean'])
                 logger.logkv("test/adv_pred_std", eval_stats['eval_adv_pred_std'])
             if level_sampler is not None:
-                for k, v in level_sampler.get_stats().items():
-                    logger.logkv(k, v)
+                for _plr_k, _plr_v in level_sampler.get_stats().items():
+                    logger.logkv(_plr_k, _plr_v)
             logger.dumpkvs()
 
             # Wandb logging

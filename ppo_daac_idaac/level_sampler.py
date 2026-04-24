@@ -67,6 +67,8 @@ class LevelSampler():
             score_function = self._average_value_l1
         elif self.strategy == 'one_step_td_error':
             score_function = self._one_step_td_error
+        elif self.strategy == 'advantage_l1':
+            score_function = self._average_advantage_l1
         else:
             raise ValueError(f'Unsupported strategy, {self.strategy}')
 
@@ -137,9 +139,27 @@ class LevelSampler():
 
         return td_errors.abs().mean().item()
 
+    def _average_advantage_l1(self, **kwargs):
+        """|A_pred - A_target| averaged over the episode.
+
+        A_target = returns - value_preds (GAE-derived target for the advantage head).
+        A_pred   = rollouts.adv_preds (IDAAC's decoupled advantage head).
+        """
+        returns = kwargs['returns']
+        value_preds = kwargs['value_preds']
+        adv_preds = kwargs['adv_preds']
+
+        adv_target = returns - value_preds
+        return (adv_preds - adv_target).abs().mean().item()
+
     @property
     def requires_value_buffers(self):
-        return self.strategy in ['gae', 'value_l1', 'one_step_td_error']    
+        return self.strategy in [
+            'gae', 'value_l1', 'one_step_td_error', 'advantage_l1']
+
+    @property
+    def requires_adv_buffers(self):
+        return self.strategy == 'advantage_l1'
 
     def _update_with_rollouts(self, rollouts, score_function):
         level_seeds = rollouts.level_seeds
@@ -169,6 +189,8 @@ class LevelSampler():
                     score_function_kwargs['returns'] = rollouts.returns[start_t:t,actor_index]
                     score_function_kwargs['rewards'] = rollouts.rewards[start_t:t,actor_index]
                     score_function_kwargs['value_preds'] = rollouts.value_preds[start_t:t,actor_index]
+                if self.requires_adv_buffers:
+                    score_function_kwargs['adv_preds'] = rollouts.adv_preds[start_t:t,actor_index]
 
                 score = score_function(**score_function_kwargs)
                 num_steps = len(episode_logits)
@@ -188,6 +210,8 @@ class LevelSampler():
                     score_function_kwargs['returns'] = rollouts.returns[start_t:,actor_index]
                     score_function_kwargs['rewards'] = rollouts.rewards[start_t:,actor_index]
                     score_function_kwargs['value_preds'] = rollouts.value_preds[start_t:,actor_index]
+                if self.requires_adv_buffers:
+                    score_function_kwargs['adv_preds'] = rollouts.adv_preds[start_t:,actor_index]
 
                 score = score_function(**score_function_kwargs)
                 num_steps = len(episode_logits)

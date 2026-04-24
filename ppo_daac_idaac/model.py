@@ -325,9 +325,10 @@ class PPOnet(nn.Module):
             action = dist.sample()
 
         action_log_probs = dist.log_probs(action)
+        action_log_dist = dist.logits  # full logit distribution for PLR
         dist_entropy = dist.entropy().mean()
 
-        return value, action, action_log_probs
+        return value, action, action_log_probs, action_log_dist
 
     def get_value(self, inputs):
         value, _ = self.base(inputs)
@@ -339,7 +340,7 @@ class PPOnet(nn.Module):
 
         action_log_probs = dist.log_probs(action)
         dist_entropy = dist.entropy().mean()
-        
+
         return value, action_log_probs, dist_entropy
 
 
