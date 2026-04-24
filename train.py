@@ -43,6 +43,64 @@ def make_envs(args, device, level_sampler=None):
     return VecPyTorchProcgen(venv, device)
 
 
+CHECKPOINT_INTERVAL = 250  # save every N updates
+
+
+def _ckpt_path(save_dir: str, j: int) -> str:
+    return os.path.join(save_dir, f"ckpt_{j:07d}.pt")
+
+
+def _latest_checkpoint(save_dir: str):
+    """Return (update_index, path) of the latest checkpoint, or None."""
+    if not save_dir or not os.path.isdir(save_dir):
+        return None
+    ckpts = [f for f in os.listdir(save_dir) if f.startswith("ckpt_") and f.endswith(".pt")]
+    if not ckpts:
+        return None
+    ckpts.sort()
+    path = os.path.join(save_dir, ckpts[-1])
+    j = int(ckpts[-1][len("ckpt_"):-len(".pt")])
+    return j, path
+
+
+def _save_checkpoint(j, actor_critic, agent, order_classifier, level_sampler,
+                     episode_rewards, envs, save_dir, log_file):
+    os.makedirs(save_dir, exist_ok=True)
+    ckpt = {
+        "update": j,
+        "actor_critic": actor_critic.state_dict(),
+        "ob_rms": getattr(envs, "ob_rms", None),
+        "episode_rewards": list(episode_rewards),
+    }
+    if order_classifier is not None:
+        ckpt["order_classifier"] = order_classifier.state_dict()
+    # save all optimizers
+    if hasattr(agent, "optimizer"):
+        ckpt["optimizer"] = agent.optimizer.state_dict()
+    else:
+        for attr in ("policy_optimizer", "value_optimizer", "clf_optimizer"):
+            if hasattr(agent, attr):
+                ckpt[attr] = getattr(agent, attr).state_dict()
+    if level_sampler is not None:
+        ckpt["level_sampler"] = {
+            "seed_scores": level_sampler.seed_scores.copy(),
+            "seed_staleness": level_sampler.seed_staleness.copy(),
+            "unseen_seed_weights": level_sampler.unseen_seed_weights.copy(),
+            "partial_seed_scores": level_sampler.partial_seed_scores.copy(),
+            "partial_seed_steps": level_sampler.partial_seed_steps.copy(),
+        }
+    path = _ckpt_path(save_dir, j)
+    torch.save(ckpt, path)
+    # keep only the last 2 checkpoints to save disk
+    existing = sorted(f for f in os.listdir(save_dir) if f.startswith("ckpt_") and f.endswith(".pt"))
+    for old in existing[:-2]:
+        try:
+            os.remove(os.path.join(save_dir, old))
+        except OSError:
+            pass
+    print(f"[ckpt] saved {path}")
+
+
 def train(args):
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.use_best_hps:
@@ -147,15 +205,42 @@ def train(args):
             args.num_mini_batch, args.value_loss_coef, args.entropy_coef,
             lr=args.lr, eps=args.eps, max_grad_norm=args.max_grad_norm)
 
+    # --- Checkpoint resume ---
+    start_update = 0
+    episode_rewards = deque(maxlen=10)
+    nsteps = torch.zeros(args.num_processes)
+    ckpt_info = _latest_checkpoint(args.save_dir) if args.save_dir else None
+    if ckpt_info is not None:
+        resume_j, ckpt_path = ckpt_info
+        print(f"[ckpt] resuming from {ckpt_path} (update {resume_j})")
+        ckpt = torch.load(ckpt_path, map_location=device)
+        actor_critic.load_state_dict(ckpt["actor_critic"])
+        if args.algo == "idaac" and "order_classifier" in ckpt:
+            order_classifier.load_state_dict(ckpt["order_classifier"])
+        if "optimizer" in ckpt and hasattr(agent, "optimizer"):
+            agent.optimizer.load_state_dict(ckpt["optimizer"])
+        for attr in ("policy_optimizer", "value_optimizer", "clf_optimizer"):
+            if attr in ckpt and hasattr(agent, attr):
+                getattr(agent, attr).load_state_dict(ckpt[attr])
+        if level_sampler is not None and "level_sampler" in ckpt:
+            ls = ckpt["level_sampler"]
+            level_sampler.seed_scores[:] = ls["seed_scores"]
+            level_sampler.seed_staleness[:] = ls["seed_staleness"]
+            level_sampler.unseen_seed_weights[:] = ls["unseen_seed_weights"]
+            level_sampler.partial_seed_scores[:] = ls["partial_seed_scores"]
+            level_sampler.partial_seed_steps[:] = ls["partial_seed_steps"]
+        episode_rewards.extend(ckpt.get("episode_rewards", []))
+        # nsteps is not restored: envs.reset() below resets all episodes anyway
+        start_update = resume_j + 1
+
     # --- Training loop ---
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
 
-    episode_rewards = deque(maxlen=10)
     num_updates = int(args.num_env_steps) // args.num_steps // args.num_processes
-    nsteps = torch.zeros(args.num_processes)
-    pbar = trange(num_updates, desc=f"train[{args.algo}|{args.env_name}]")
+    pbar = trange(start_update, num_updates, desc=f"train[{args.algo}|{args.env_name}]",
+                  initial=start_update, total=num_updates)
     for j in pbar:
         actor_critic.train()
 
@@ -222,8 +307,14 @@ def train(args):
         if level_sampler is not None:
             level_sampler.after_update()
 
-        # Save model
-        if j == num_updates - 1 and args.save_dir != "":
+        # Periodic checkpoint + final model save
+        is_last = (j == num_updates - 1)
+        if args.save_dir and (j % CHECKPOINT_INTERVAL == 0 or is_last):
+            _save_checkpoint(j, actor_critic, agent,
+                             order_classifier if args.algo == 'idaac' else None,
+                             level_sampler, episode_rewards, envs,
+                             args.save_dir, log_file)
+        if is_last and args.save_dir:
             os.makedirs(args.save_dir, exist_ok=True)
             torch.save([actor_critic, getattr(envs, 'ob_rms', None)],
                 os.path.join(args.save_dir, "agent{}.pt".format(log_file)))

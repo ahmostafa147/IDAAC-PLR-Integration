@@ -28,7 +28,14 @@
 
 set -u
 
+if ! command -v modal >/dev/null 2>&1; then
+  echo "error: 'modal' not found in PATH. Activate the venv first:" >&2
+  echo "    source venv/bin/activate && bash scripts/run_all_experiments.sh" >&2
+  exit 1
+fi
+
 SEED="${SEED:-0}"
+LAUNCHED=0
 
 # --- Shared paper hyperparameters ---
 # (defaults in arguments.py already match most of these; we pass them
@@ -58,11 +65,12 @@ launch() {
     --wandb_name "$tag" \
     "${COMMON_ARGS[@]}" \
     "$@"
+  LAUNCHED=$((LAUNCHED + 1))
 }
 
-# ===================================================================
-# 1) IDAAC alone (no PLR)
-# ===================================================================
+# # ===================================================================
+# # 1) IDAAC alone (no PLR)
+# # ===================================================================
 launch "idaac-bigfish-s$SEED"    --algo idaac --env_name bigfish    --use_best_hps
 launch "idaac-bossfight-s$SEED"  --algo idaac --env_name bossfight  --use_best_hps
 launch "idaac-caveflyer-s$SEED"  --algo idaac --env_name caveflyer  --use_best_hps
@@ -80,9 +88,9 @@ launch "idaac-ninja-s$SEED"      --algo idaac --env_name ninja      --use_best_h
 launch "idaac-plunder-s$SEED"    --algo idaac --env_name plunder    --use_best_hps
 launch "idaac-starpilot-s$SEED"  --algo idaac --env_name starpilot  --use_best_hps
 
-# ===================================================================
-# 2) IDAAC + PLR (value_l1 scoring)
-# ===================================================================
+# # ===================================================================
+# # 2) IDAAC + PLR (value_l1 scoring)
+# # ===================================================================
 launch "idaac-plr-value_l1-bigfish-s$SEED"   --algo idaac --env_name bigfish   --use_plr --level_replay_strategy value_l1 --use_best_hps
 launch "idaac-plr-value_l1-bossfight-s$SEED" --algo idaac --env_name bossfight --use_plr --level_replay_strategy value_l1 --use_best_hps
 launch "idaac-plr-value_l1-caveflyer-s$SEED" --algo idaac --env_name caveflyer --use_plr --level_replay_strategy value_l1 --use_best_hps
@@ -120,9 +128,9 @@ launch "idaac-plr-adv_l1-ninja-s$SEED"     --algo idaac --env_name ninja     --u
 launch "idaac-plr-adv_l1-plunder-s$SEED"   --algo idaac --env_name plunder   --use_plr --level_replay_strategy advantage_l1 --use_best_hps
 launch "idaac-plr-adv_l1-starpilot-s$SEED" --algo idaac --env_name starpilot --use_plr --level_replay_strategy advantage_l1 --use_best_hps
 
-# ===================================================================
-# 4) PPO + PLR (value_l1 scoring)
-# ===================================================================
+# # ===================================================================
+# # 4) PPO + PLR (value_l1 scoring)
+# # ===================================================================
 launch "ppo-plr-value_l1-bigfish-s$SEED"   --algo ppo --env_name bigfish   --use_plr --level_replay_strategy value_l1
 launch "ppo-plr-value_l1-bossfight-s$SEED" --algo ppo --env_name bossfight --use_plr --level_replay_strategy value_l1
 launch "ppo-plr-value_l1-caveflyer-s$SEED" --algo ppo --env_name caveflyer --use_plr --level_replay_strategy value_l1
@@ -141,6 +149,6 @@ launch "ppo-plr-value_l1-plunder-s$SEED"   --algo ppo --env_name plunder   --use
 launch "ppo-plr-value_l1-starpilot-s$SEED" --algo ppo --env_name starpilot --use_plr --level_replay_strategy value_l1
 
 echo
-echo "[done] launched 64 detached runs for seed=$SEED"
+echo "[done] launched $LAUNCHED detached runs for seed=$SEED"
 echo "       monitor: modal app list    |    wandb project: idaac-plr"
 echo "       pull logs later: modal volume get idaac-plr-volume runs/logs ./local_logs"
