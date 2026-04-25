@@ -123,7 +123,8 @@ def train(args):
     log_file = '-{}-{}-s{}'.format(args.env_name, args.algo, args.seed)
     if args.use_plr:
         log_file += '-plr'
-    logger.configure(dir=args.log_dir, format_strs=['csv', 'stdout'], log_suffix=log_file)
+    resuming = bool(_latest_checkpoint(args.save_dir)) if args.save_dir else False
+    logger.configure(dir=args.log_dir, format_strs=['csv', 'stdout'], log_suffix=log_file, append=resuming)
 
     wandb_name = args.wandb_name or f"{args.algo}-{args.env_name}-s{args.seed}{'-plr' if args.use_plr else ''}"
     wandb_logger = WandBLogger(
