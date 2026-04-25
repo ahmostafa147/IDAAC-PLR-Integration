@@ -126,7 +126,10 @@ def train(args):
     resuming = bool(_latest_checkpoint(args.save_dir)) if args.save_dir else False
     logger.configure(dir=args.log_dir, format_strs=['csv', 'stdout'], log_suffix=log_file, append=resuming)
 
-    wandb_name = args.wandb_name or f"{args.algo}-{args.env_name}-s{args.seed}{'-plr' if args.use_plr else ''}"
+    from datetime import datetime
+    _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _base_name = args.wandb_name or f"{args.algo}-{args.env_name}-s{args.seed}{'-plr' if args.use_plr else ''}"
+    wandb_name = f"{_base_name}_{_ts}"
     wandb_logger = WandBLogger(
         project=args.wandb_project,
         run_name=wandb_name,
